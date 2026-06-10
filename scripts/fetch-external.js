@@ -49,7 +49,39 @@ const FRED_FEATURES = [
   { key: "WHEAT",       name: "Wheat price (IMF global or grains PPI)",   candidates: ["PWHEAMTUSDM", "WPU0121"], required: false },
   { key: "UNRATE",      name: "US unemployment rate (%)",                 candidates: ["UNRATE"], required: false },
   { key: "PPI_ALL",     name: "PPI: all commodities",                     candidates: ["PPIACO"], required: false },
+  // feature-lab additions: farm-margin inputs, cycle leads, consumer
+  { key: "FERT",        name: "PPI: fertilizer materials",                candidates: ["WPU0651"], required: false },
+  { key: "DIESEL",      name: "PPI: No. 2 diesel fuel",                   candidates: ["WPU057303"], required: false },
+  { key: "CURVE",       name: "10Y minus 3M Treasury spread (%)",         candidates: ["T10Y3MM"], required: false },
+  { key: "UMCSENT",     name: "U. Michigan consumer sentiment",           candidates: ["UMCSENT"], required: false },
+  { key: "IP_AG_MACH",  name: "Industrial production: ag/constr/mining machinery", candidates: ["IPG3331S"], required: false },
+  { key: "HOUST",       name: "Housing starts (SAAR, thousands)",         candidates: ["HOUST"], required: false },
 ];
+
+// ---------------- US Drought Monitor (weekly, no key) ----------------
+function fetchDrought() {
+  const url = "https://usdmdataservices.unl.edu/api/USStatistics/GetDroughtSeverityStatisticsByAreaPercent" +
+    "?aoi=conus&startdate=1/1/2000&enddate=12/31/2026&statisticsType=1";
+  const csv = curl(url);
+  const lines = csv.trim().split("\n");
+  const header = lines[0].split(",");
+  const iDate = header.indexOf("ValidStart"), iD2 = header.indexOf("D2");
+  if (iDate < 0 || iD2 < 0) throw new Error("USDM format changed: " + lines[0]);
+  // monthly average of % CONUS area in severe-or-worse drought (D2+)
+  const byMonth = {};
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split(",");
+    const v = parseFloat(c[iD2]);
+    if (!c[iDate] || !Number.isFinite(v)) continue;
+    const m = c[iDate].slice(0, 7);
+    (byMonth[m] = byMonth[m] || []).push(v);
+  }
+  const obs = Object.keys(byMonth).sort().map(function (m) {
+    return { date: m + "-01", value: byMonth[m].reduce(function (s, v) { return s + v; }, 0) / byMonth[m].length };
+  });
+  if (obs.length < 60) throw new Error("USDM: only " + obs.length + " months");
+  return obs;
+}
 
 function tryFredSeries(id) {
   const csv = curl("https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + id);
@@ -168,6 +200,15 @@ for (const f of FRED_FEATURES) {
   const obs = got.obs;
   out.fred[f.key] = { name: f.name, fredId: got.id, freq: "monthly", obs };
   console.log("  " + f.key.padEnd(12) + obs.length + " obs  " + obs[0].date + " .. " + obs[obs.length - 1].date + "  [" + got.id + "]");
+}
+
+console.log("Fetching US Drought Monitor…");
+try {
+  const obs = fetchDrought();
+  out.fred.DROUGHT = { name: "CONUS area in severe+ drought (D2+, %)", fredId: "USDM", freq: "monthly", obs };
+  console.log("  DROUGHT     " + obs.length + " obs  " + obs[0].date + " .. " + obs[obs.length - 1].date + "  [USDM D2+]");
+} catch (e) {
+  console.log("  DROUGHT     SKIPPED (" + e.message.split("\n")[0].slice(0, 60) + ")");
 }
 
 console.log("Fetching SEC EDGAR series…");

@@ -75,15 +75,23 @@ node scripts/backtest.js         # walk-forward backtests + 4-quarter forecast
 # forecast automatically and scales the twin's demand by the outlook
 ```
 
-Backtest results (out-of-sample, vs. naive baselines):
+**Feature lab** (`scripts/feature-lab.js`) systematically tested unconventional candidates — drought (US Drought Monitor weekly D2+ area), farm-margin composites (corn ÷ fertilizer/diesel/machinery PPIs), yield curve, consumer sentiment, machinery industrial production, housing starts, and dealer-channel cross-series. Two discoveries were promoted to production as *extended features* (with automatic fallback to core features where history is short):
+
+- **`channel_sts`** — Titan Machinery stock-to-sales YoY (45-day filing lag). Lead correlation with Deere growth strengthens with horizon: −0.49 (1q), −0.59 (2q), **−0.65 (3q)**. Channel stuffing precedes manufacturer revenue declines by 2–4 quarters.
+- **`umcsent_yoy`** — consumer sentiment YoY, an *inverse* correlate (−0.42 at 2q): ag booms ride high food/fuel prices, which depress consumer sentiment.
+- **`diesel_yoy`** — farm input cost, supporting feature in the severity ensemble.
+
+Backtest results (out-of-sample, vs. naive baselines, with extended features):
 
 | Series | Test quarters | Ensemble MAPE | Seasonal-naive MAPE | Direction accuracy |
 |---|---|---|---|---|
-| Deere revenue | 47 | **8.7%** | 14.4% | 78.7% |
-| CNH revenue | 36 | **10.3%** | 16.4% | 83.3% |
-| AGCO revenue | 16 | **8.1%** | 16.8% | 81.3% |
-| Titan (dealer) revenue | 44 | **9.3%** | 13.6% | 81.8% |
-| Titan (dealer) inventory | 43 | **7.2%** | 25.2% | 90.7% |
+| Deere revenue | 36 | **8.0%** | 14.9% | 83.3% |
+| CNH revenue | 36 | **10.1%** | 16.4% | 80.6% |
+| AGCO revenue | 16 | **7.3%** | 16.8% | 87.5% |
+| Titan (dealer) revenue | 44 | **9.0%** | 13.6% | 79.5% |
+| Titan (dealer) inventory | 43 | **7.0%** | 25.2% | 90.7% |
+
+At the **eve of the 2024 downturn** (zero-lookahead stress test standing at Oct 2023), the extended features turned the model's call from *flat* to *down* on all five series and cut 4-quarter path error by ~25–35%; at the **2020 boom onset** it predicted Deere's next-4-quarter change at +18.1% vs +16.4% actual. Severity capture on big-move quarters (|YoY| ≥ 12%) improved from 0.58 to ~0.70. Known remaining weakness: sharp V-recoveries (mid-2025) are still missed.
 
 The dashboard's forecast panel charts the Deere revenue and dealer-inventory outlooks with 80% intervals and applies the average next-4-quarter YoY growth to the twin's retail demand (`Twin.setDemandScale`), so days-supply and the risk score respond to the real-world outlook.
 

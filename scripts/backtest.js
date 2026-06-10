@@ -21,6 +21,17 @@ if (!fs.existsSync(dataPath)) {
 }
 const ext = JSON.parse(fs.readFileSync(dataPath, "utf8"));
 
+// macro dict per target: dealer-channel series added as cross-series
+// features, except when the target IS the dealer (self-prediction)
+function macrosFor(targetKey) {
+  const m = Object.assign({}, ext.fred);
+  if (targetKey.indexOf("TITN") !== 0 && ext.edgar.TITN_INV && ext.edgar.TITN_REV) {
+    m.CHANNEL_INV = { obs: ext.edgar.TITN_INV.obs };
+    m.CHANNEL_REV = { obs: ext.edgar.TITN_REV.obs };
+  }
+  return m;
+}
+
 const TARGETS = [
   { key: "DE_REV",   label: "Deere quarterly revenue (demand proxy)" },
   { key: "CNH_REV",  label: "CNH Industrial quarterly revenue" },
@@ -44,7 +55,8 @@ for (const t of TARGETS) {
   if (!series) { console.log(t.key + ": missing from cache, skipped"); continue; }
   const target = series.obs;
 
-  const wf = Forecast.walkForward(target, ext.fred, { minTrain: 12 });
+  const macros = macrosFor(t.key);
+  const wf = Forecast.walkForward(target, macros, { minTrain: 12 });
   if (wf.points.length < 6) { console.log(t.key + ": too few test points (" + wf.points.length + "), skipped"); continue; }
 
   const mEns = Forecast.metrics(wf.points, "ensemble");
@@ -54,7 +66,7 @@ for (const t of TARGETS) {
   const skill = 1 - mEns.mape / mSeas.mape; // % error reduction vs seasonal naive
 
   const sd = Forecast.residualStd(wf.points);
-  const fc = Forecast.forecast(target, ext.fred, 4, sd);
+  const fc = Forecast.forecast(target, macros, 4, sd);
 
   console.log(
     t.key.padEnd(9) +

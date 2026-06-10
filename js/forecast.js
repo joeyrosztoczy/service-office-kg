@@ -60,22 +60,59 @@
     return now - ago;
   }
 
+  function shiftDays(dateStr, days) {
+    const d = new Date(dateStr + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
   // ------------------------------------------------------------------
-  // engineered macro features (each tolerant of a missing source series)
+  // engineered features (each tolerant of a missing source series)
+  // "extended" features were validated in scripts/feature-lab.js: they
+  // improve 2-quarter-ahead severity capture but have shorter history,
+  // so the model falls back to core features when rows get too few.
   // ------------------------------------------------------------------
+  function seriesYoy(key) { return function (macros, asOf) { return yoy(macros[key].obs, asOf); }; }
+  function seriesD12(key) { return function (macros, asOf) { return delta12(macros[key].obs, asOf); }; }
+
+  // Dealer-channel stock-to-sales YoY (e.g., Titan Machinery SEC filings),
+  // lagged 45 days for filing delay. Channel stuffing leads manufacturer
+  // revenue declines by 2-4 quarters (lead corr up to -0.65).
+  function channelStsYoY(macros, asOf) {
+    function sts(date) {
+      const eff = shiftDays(date, -45);
+      const inv = valueAsOf(macros.CHANNEL_INV.obs, eff);
+      const revs = macros.CHANNEL_REV.obs.filter(function (o) { return o.date <= eff; }).slice(-4);
+      if (inv == null || revs.length < 4) return null;
+      const r = revs.reduce(function (s, o) { return s + o.value; }, 0);
+      return r > 0 ? inv / r : null;
+    }
+    const now = sts(asOf), ago = sts(addMonths(asOf, -12));
+    if (now == null || ago == null || now <= 0 || ago <= 0) return null;
+    return Math.log(now / ago);
+  }
+
   const MACRO_DEFS = [
-    { name: "corn_yoy",   key: "CORN",        fn: yoy },     // crop revenue driver
-    { name: "soy_yoy",    key: "SOY",         fn: yoy },
-    { name: "wheat_yoy",  key: "WHEAT",       fn: yoy },
-    { name: "prime_d12",  key: "PRIME",       fn: delta12 }, // financing cost shift
-    { name: "agppi_yoy",  key: "PPI_AG_MACH", fn: yoy },     // equipment price inflation
-    { name: "unrate_d12", key: "UNRATE",      fn: delta12 }, // macro cycle
-    { name: "ppi_yoy",    key: "PPI_ALL",     fn: yoy },     // broad input costs
+    // core
+    { name: "corn_yoy",    requires: ["CORN"],        fn: seriesYoy("CORN") },     // crop revenue driver
+    { name: "soy_yoy",     requires: ["SOY"],         fn: seriesYoy("SOY") },
+    { name: "wheat_yoy",   requires: ["WHEAT"],       fn: seriesYoy("WHEAT") },
+    { name: "prime_d12",   requires: ["PRIME"],       fn: seriesD12("PRIME") },    // financing cost shift
+    { name: "agppi_yoy",   requires: ["PPI_AG_MACH"], fn: seriesYoy("PPI_AG_MACH") }, // equipment inflation
+    { name: "unrate_d12",  requires: ["UNRATE"],      fn: seriesD12("UNRATE") },   // macro cycle
+    { name: "ppi_yoy",     requires: ["PPI_ALL"],     fn: seriesYoy("PPI_ALL") },  // broad input costs
+    // extended (feature-lab validated)
+    { name: "diesel_yoy",  requires: ["DIESEL"],      fn: seriesYoy("DIESEL"), extended: true },
+    { name: "umcsent_yoy", requires: ["UMCSENT"],     fn: seriesYoy("UMCSENT"), extended: true }, // inverse correlate
+    { name: "channel_sts", requires: ["CHANNEL_INV", "CHANNEL_REV"], fn: channelStsYoY, extended: true },
   ];
 
-  function activeMacros(macros) {
+  function activeMacros(macros, useExtended) {
     return MACRO_DEFS.filter(function (m) {
-      return macros[m.key] && macros[m.key].obs && macros[m.key].obs.length > 30;
+      if (m.extended && !useExtended) return false;
+      return m.requires.every(function (k) {
+        return macros[k] && macros[k].obs && macros[k].obs.length > 12;
+      });
     });
   }
 
@@ -88,8 +125,8 @@
   // ------------------------------------------------------------------
   // dataset: row i predicts target[i] from info available at target[i-1].date
   // ------------------------------------------------------------------
-  function buildRows(target, macros) {
-    const act = activeMacros(macros);
+  function buildRowsWith(target, macros, useExtended) {
+    const act = activeMacros(macros, useExtended);
     const rows = [];
     for (let i = 5; i < target.length; i++) {
       if (!(target[i].value > 0 && target[i - 1].value > 0 &&
@@ -99,14 +136,26 @@
       const x = [1, Math.log(target[i - 1].value / target[i - 5].value)]; // momentum
       let ok = true;
       for (const m of act) {
-        const v = m.fn(macros[m.key].obs, asOf);
-        if (v == null) { ok = false; break; }
+        const v = m.fn(macros, asOf);
+        if (v == null || !Number.isFinite(v)) { ok = false; break; }
         x.push(v);
       }
       if (!ok) continue;
       rows.push({ i: i, date: target[i].date, x: x, y: Math.log(target[i].value / target[i - 4].value) });
     }
-    return { rows: rows, featureNames: ["intercept", "y_lag1"].concat(act.map(function (m) { return m.name; })) };
+    return {
+      rows: rows, act: act,
+      featureNames: ["intercept", "y_lag1"].concat(act.map(function (m) { return m.name; })),
+    };
+  }
+
+  // extended features win when they leave enough history; otherwise core
+  function buildRows(target, macros, minUseful) {
+    const ext = buildRowsWith(target, macros, true);
+    const core = buildRowsWith(target, macros, false);
+    const threshold = Math.max(minUseful || 0, 20);
+    if (ext.rows.length >= threshold || ext.rows.length === core.rows.length) return ext;
+    return core;
   }
 
   // ------------------------------------------------------------------
@@ -237,10 +286,10 @@
   function forecast(target, macros, h, residStdLog, opts) {
     opts = opts || {};
     const minRows = opts.minRows || 16;
-    const built = buildRows(target, macros);
+    const built = buildRows(target, macros, minRows);
     if (built.rows.length < minRows) return [];
     const model = fitRidge(built.rows, chooseLambda(built.rows, 12));
-    const act = activeMacros(macros);
+    const act = built.act;
     const ext = target.map(function (t) { return { date: t.date, value: t.value }; });
     const out = [];
     const sd = residStdLog || 0.08;
@@ -250,8 +299,8 @@
       const x = [1, Math.log(ext[i - 1].value / ext[i - 5].value)];
       let ok = true;
       for (const m of act) {
-        const v = m.fn(macros[m.key].obs, asOf);
-        if (v == null) { ok = false; break; }
+        const v = m.fn(macros, asOf);
+        if (v == null || !Number.isFinite(v)) { ok = false; break; }
         x.push(v);
       }
       if (!ok) break;

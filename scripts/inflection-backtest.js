@@ -24,6 +24,16 @@ const Forecast = require(path.join(__dirname, "..", "js", "forecast.js"));
 
 const ext = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "data", "external", "external-data.json"), "utf8"));
 
+// dealer-channel cross-series features, except for the dealer itself
+function macrosFor(targetKey) {
+  const m = Object.assign({}, ext.fred);
+  if (targetKey.indexOf("TITN") !== 0 && ext.edgar.TITN_INV && ext.edgar.TITN_REV) {
+    m.CHANNEL_INV = { obs: ext.edgar.TITN_INV.obs };
+    m.CHANNEL_REV = { obs: ext.edgar.TITN_REV.obs };
+  }
+  return m;
+}
+
 const SERIES = [
   { key: "DE_REV",   label: "Deere revenue" },
   { key: "CNH_REV",  label: "CNH revenue" },
@@ -60,7 +70,7 @@ const report = { generatedAt: new Date().toISOString(), windows: {}, episodes: {
 const WF = {};
 for (const s of SERIES) {
   if (!ext.edgar[s.key]) continue;
-  WF[s.key] = Forecast.walkForward(ext.edgar[s.key].obs, ext.fred, { minTrain: 12 }).points;
+  WF[s.key] = Forecast.walkForward(ext.edgar[s.key].obs, macrosFor(s.key), { minTrain: 12 }).points;
 }
 
 function score(points) {
@@ -172,7 +182,7 @@ for (const st of STRESS) {
     const future = full.filter((o) => o.date > st.origin).slice(0, 4);
     if (known.length < 17 || future.length < 3) continue;
 
-    const macrosThen = Forecast.truncateMacros(ext.fred, st.origin);
+    const macrosThen = Forecast.truncateMacros(macrosFor(s.key), st.origin);
     const wfK = Forecast.walkForward(known, macrosThen, { minTrain: 12 });
     const sd = wfK.points.length >= 6 ? Forecast.residualStd(wfK.points) : 0.1;
     const fc = Forecast.forecast(known, macrosThen, future.length, sd, { minRows: 10 });
