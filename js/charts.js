@@ -176,5 +176,63 @@ const TwinCharts = (function () {
     agingChart("#chart-aging", sim, filters);
   }
 
-  return { renderAll: renderAll };
+  // ---- real-data series + forecast fan (dashboard forecast panel) -----
+  function forecastChart(selector, recent, fc, color) {
+    const el = document.querySelector(selector);
+    const w = el.clientWidth || 360, h = el.clientHeight || 170;
+    const M = { top: 12, right: 14, bottom: 22, left: 48 };
+    clear(el);
+    const svg = d3.select(el).append("svg").attr("viewBox", "0 0 " + w + " " + h);
+
+    const hist = recent.map(function (o) { return { dt: new Date(o.date), v: o.value }; });
+    const fut = fc.map(function (f) { return { dt: new Date(f.date), v: f.pred, lo: f.lo, hi: f.hi }; });
+    const all = hist.concat(fut);
+    if (!all.length) return;
+
+    const x = d3.scaleTime().domain(d3.extent(all, function (d) { return d.dt; })).range([M.left, w - M.right]);
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(all, function (d) { return d.hi || d.v; }) * 1.08])
+      .nice().range([h - M.bottom, M.top]);
+
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(" + M.left + ",0)")
+      .call(d3.axisLeft(y).ticks(4).tickFormat(function (v) { return "$" + (v / 1e9).toFixed(1) + "B"; }));
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(0," + (h - M.bottom) + ")")
+      .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat("%b %y")));
+
+    // divider between actuals and forecast
+    if (hist.length && fut.length) {
+      const xd = x(hist[hist.length - 1].dt);
+      svg.append("line").attr("x1", xd).attr("x2", xd).attr("y1", M.top).attr("y2", h - M.bottom)
+        .attr("stroke", "#7d92a5").attr("stroke-dasharray", "2 3").attr("opacity", 0.6);
+    }
+
+    // 80% interval fan
+    const band = d3.area()
+      .x(function (d) { return x(d.dt); })
+      .y0(function (d) { return y(d.lo); })
+      .y1(function (d) { return y(d.hi); })
+      .curve(d3.curveMonotoneX);
+    const fanPts = hist.length
+      ? [{ dt: hist[hist.length - 1].dt, lo: hist[hist.length - 1].v, hi: hist[hist.length - 1].v }].concat(fut)
+      : fut;
+    svg.append("path").datum(fanPts).attr("d", band).attr("fill", color).attr("opacity", 0.14);
+
+    const line = d3.line()
+      .x(function (d) { return x(d.dt); })
+      .y(function (d) { return y(d.v); })
+      .curve(d3.curveMonotoneX);
+    svg.append("path").datum(hist).attr("d", line)
+      .attr("fill", "none").attr("stroke", color).attr("stroke-width", 2);
+    svg.append("path").datum(hist.length ? [hist[hist.length - 1]].concat(fut) : fut).attr("d", line)
+      .attr("fill", "none").attr("stroke", color).attr("stroke-width", 2).attr("stroke-dasharray", "5 4");
+
+    fut.forEach(function (d) {
+      svg.append("circle").attr("cx", x(d.dt)).attr("cy", y(d.v)).attr("r", 3)
+        .attr("fill", color).attr("stroke", "#0c1116");
+    });
+  }
+
+  return { renderAll: renderAll, forecastChart: forecastChart };
 })();

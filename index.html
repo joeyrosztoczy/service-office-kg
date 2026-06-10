@@ -77,6 +77,29 @@
     </div>
   </main>
 
+  <section class="grid-forecast">
+    <div class="card">
+      <div class="card-head">
+        <h2>Demand outlook — Deere revenue (real SEC data + forecast)</h2>
+        <span class="hint">walk-forward backtested · 80% interval</span>
+      </div>
+      <div id="chart-forecast-de" class="chart"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Dealer channel inventory — Titan Machinery (real SEC data + forecast)</h2>
+        <span class="hint">public ag-dealer proxy for UCC-financed channel stock</span>
+      </div>
+      <div id="chart-forecast-titn" class="chart"></div>
+    </div>
+    <div class="card outlook-card">
+      <div class="card-head"><h2>Applied to the twin</h2></div>
+      <div id="outlook-body" class="outlook-body">Forecast data not loaded — run
+        <code>node scripts/fetch-external.js</code> then <code>node scripts/backtest.js</code>,
+        and serve the repo over http.</div>
+    </div>
+  </section>
+
   <section class="grid-bottom">
     <div class="card risk-card">
       <div class="card-head"><h2>Network risk</h2></div>

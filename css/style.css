@@ -139,6 +139,25 @@ h1 { margin: 0; font-size: 19px; letter-spacing: 0.3px; }
 
 .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
+.grid-forecast {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.9fr;
+  gap: 12px;
+  padding: 12px 22px 0;
+}
+
+.outlook-body { color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+.outlook-body .big {
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--jd-yellow);
+  display: block;
+  margin: 4px 0 2px;
+}
+.outlook-body .pos { color: var(--jd-green); font-weight: 700; }
+.outlook-body .neg { color: var(--red); font-weight: 700; }
+.outlook-body code { color: #9fb6c9; }
+
 .grid-bottom {
   display: grid;
   grid-template-columns: 1.1fr 1.3fr 1fr;
@@ -338,6 +357,7 @@ footer code { color: #9fb6c9; }
   .kpis { grid-template-columns: repeat(3, 1fr); }
   .grid { grid-template-columns: 1fr; }
   .grid-bottom { grid-template-columns: 1fr; }
+  .grid-forecast { grid-template-columns: 1fr; }
   .map { min-height: 420px; }
 }
 @media (max-width: 640px) {

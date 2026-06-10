@@ -51,6 +51,42 @@ This ships with simulated data on purpose — swap the generator for real feeds 
 2. Feed real valuations from auction comps or guide books into `computeValue`.
 3. Point movement events at your transport-management or allocation data.
 
+## Forecasting on real internet data
+
+The twin is designed for a dealership whose internal volume is too low to model alone — so the forecasting layer runs entirely on public internet data, no API keys required:
+
+| Source | Series | Used as |
+|---|---|---|
+| SEC EDGAR XBRL | Deere quarterly revenue (2008→) | Deere demand proxy (forecast target) |
+| SEC EDGAR XBRL | CNH Industrial, AGCO quarterly revenue | Competitor demand proxies |
+| SEC EDGAR XBRL | **Titan Machinery** quarterly revenue & inventory (2011→) | Public ag-dealer group — the dealer-channel / UCC-style inventory proxy |
+| FRED | Prime rate, ag-machinery PPI, corn/soy/wheat prices, unemployment, all-commodities PPI | Engineered macro features |
+
+> **On UCC data:** state UCC filing databases (the direct record of floor-planned equipment) are not freely accessible programmatically — they require paid accounts (e.g., Texas SOSDirect) or bulk-data purchases. Titan Machinery's SEC-filed inventory is the closest free public substitute for dealer-channel inventory, and it backtests well.
+
+**Engineered features** (`js/forecast.js`): YoY growth momentum, corn/soy/wheat price YoY (3-month trailing averages), 12-month prime-rate change (financing cost), ag-machinery PPI YoY (equipment inflation), unemployment change, broad PPI YoY — all computed strictly as-of the quarter before the one being predicted.
+
+**Model:** ridge regression on YoY log growth (the YoY transform removes ag seasonality), lambda chosen by time-ordered CV, ensembled 50/50 with growth momentum. **Backtesting is strict walk-forward** — every prediction uses only data published before the quarter it predicts.
+
+```bash
+node scripts/fetch-external.js   # pull + cache real FRED / EDGAR data
+node scripts/backtest.js         # walk-forward backtests + 4-quarter forecast
+# open docs/forecast.html for backtest charts; the dashboard picks up the
+# forecast automatically and scales the twin's demand by the outlook
+```
+
+Backtest results (out-of-sample, vs. naive baselines):
+
+| Series | Test quarters | Ensemble MAPE | Seasonal-naive MAPE | Direction accuracy |
+|---|---|---|---|---|
+| Deere revenue | 47 | **8.7%** | 14.4% | 78.7% |
+| CNH revenue | 36 | **10.3%** | 16.4% | 83.3% |
+| AGCO revenue | 16 | **8.1%** | 16.8% | 81.3% |
+| Titan (dealer) revenue | 44 | **9.3%** | 13.6% | 81.8% |
+| Titan (dealer) inventory | 43 | **7.2%** | 25.2% | 90.7% |
+
+The dashboard's forecast panel charts the Deere revenue and dealer-inventory outlooks with 80% intervals and applies the average next-4-quarter YoY growth to the twin's retail demand (`Twin.setDemandScale`), so days-supply and the risk score respond to the real-world outlook.
+
 ## Historical playback
 
 ```bash
@@ -63,10 +99,11 @@ Writes `docs/replay-data.json` and reports stock/value/exposure/risk trajectorie
 ## Tests
 
 ```bash
-node test/sim.test.js
+node test/sim.test.js        # twin invariants over ~2.5 simulated years
+node test/forecast.test.js   # solver, no-lookahead guarantee, synthetic + real-data accuracy
 ```
 
-Runs the twin for ~2.5 simulated years and asserts fleet self-regulation, valuation sanity, transit bookkeeping, filter correctness, and bounded risk scores.
+`sim.test.js` asserts fleet self-regulation, valuation sanity, transit bookkeeping, filter correctness, and bounded risk scores. `forecast.test.js` proves the backtester cannot look ahead (mutating future data must not change past predictions) and that the model beats seasonal-naive on both synthetic and cached real data.
 
 ---
 

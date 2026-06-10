@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>9R Twin — Forecast Backtests on Real Data</title>
+  <style>
+    :root {
+      --bg: #0c1116; --panel: #121a22; --line: #1f2c3a;
+      --text: #dce7f0; --muted: #7d92a5;
+      --green: #3fa535; --yellow: #ffde00; --red: #e25563; --blue: #2d9cdb;
+    }
+    html, body { margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+    .wrap { max-width: 1480px; margin: 0 auto; padding: 18px 22px; }
+    h1 { font-size: 19px; margin: 0 0 2px; }
+    .sub { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; margin-bottom: 12px; }
+    .panel h2 { margin: 0 0 2px; font-size: 13px; text-transform: uppercase;
+      letter-spacing: 0.4px; color: #b9cbda; }
+    .mrow { color: var(--muted); font-size: 11.5px; margin: 2px 0 6px; }
+    .mrow b { color: var(--yellow); }
+    .legend { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+    .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin: 0 4px 0 12px; }
+    .chart { height: 215px; }
+    svg { width: 100%; height: 100%; display: block; }
+    .axis text { fill: var(--muted); font-size: 10px; }
+    .axis path, .axis line { stroke: var(--line); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Forecast backtests — real internet data</h1>
+  <p class="sub" id="meta">
+    Walk-forward (every point predicted using only earlier data) · model = ridge regression on YoY growth
+    with FRED macro features, ensembled with growth momentum · sources: SEC EDGAR &amp; FRED · loading…
+  </p>
+  <div id="panels"></div>
+</div>
+
+<script src="../vendor/d3.v7.min.js"></script>
+<script>
+fetch("backtest-report.json").then(r => r.json()).then(rep => {
+  document.getElementById("meta").innerHTML =
+    "Walk-forward (every point predicted using only earlier data) · model = ridge on YoY growth with FRED macro " +
+    "features, ensembled with growth momentum · sources: SEC EDGAR &amp; FRED · generated " + rep.generatedAt.slice(0, 10);
+  const pct = v => (v * 100).toFixed(1) + "%";
+  const fmtB = v => "$" + (v / 1e9).toFixed(2) + "B";
+
+  for (const [key, s] of Object.entries(rep.series)) {
+    const div = document.createElement("div");
+    div.className = "panel";
+    div.innerHTML =
+      "<h2>" + key + " — " + s.label + "</h2>" +
+      "<div class='mrow'>ensemble MAPE <b>" + pct(s.metrics.ensemble.mape) + "</b>" +
+      " vs seasonal-naive " + pct(s.metrics.seasonalNaive.mape) +
+      " (skill +" + pct(s.metrics.skillVsSeasonal) + ")" +
+      " · direction accuracy <b>" + pct(s.metrics.ensemble.dirAcc) + "</b>" +
+      " · MAE " + fmtB(s.metrics.ensemble.mae) +
+      " · " + s.metrics.ensemble.n + " out-of-sample quarters</div>" +
+      "<div class='legend'><i style='background:#9fb6c9'></i>Actual" +
+      "<i style='background:#ffde00'></i>Walk-forward prediction" +
+      "<i style='background:#3fa535'></i>Forecast (80% interval)</div>" +
+      "<div class='chart' id='c-" + key + "'></div>";
+    document.getElementById("panels").appendChild(div);
+    draw("#c-" + key, s);
+  }
+
+  function draw(sel, s) {
+    const el = document.querySelector(sel);
+    const w = el.clientWidth, h = el.clientHeight;
+    const M = { top: 10, right: 16, bottom: 22, left: 52 };
+    const svg = d3.select(el).append("svg").attr("viewBox", "0 0 " + w + " " + h);
+
+    const act = s.points.map(p => ({ dt: new Date(p.date), v: p.actual }));
+    const pred = s.points.map(p => ({ dt: new Date(p.date), v: p.ensemble }));
+    const fut = (s.forecast || []).map(f => ({ dt: new Date(f.date), v: f.pred, lo: f.lo, hi: f.hi }));
+    const all = act.concat(pred, fut);
+
+    const x = d3.scaleTime().domain(d3.extent(all, d => d.dt)).range([M.left, w - M.right]);
+    const y = d3.scaleLinear().domain([0, d3.max(all, d => d.hi || d.v) * 1.06]).nice()
+      .range([h - M.bottom, M.top]);
+
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(" + M.left + ",0)")
+      .call(d3.axisLeft(y).ticks(5).tickFormat(v => "$" + (v / 1e9).toFixed(1) + "B"));
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(0," + (h - M.bottom) + ")")
+      .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat("%Y")));
+
+    const line = d3.line().x(d => x(d.dt)).y(d => y(d.v)).curve(d3.curveMonotoneX);
+
+    if (fut.length) {
+      const band = d3.area().x(d => x(d.dt)).y0(d => y(d.lo)).y1(d => y(d.hi)).curve(d3.curveMonotoneX);
+      const anchor = act[act.length - 1];
+      svg.append("path").datum([{ dt: anchor.dt, lo: anchor.v, hi: anchor.v }].concat(fut))
+        .attr("d", band).attr("fill", "#3fa535").attr("opacity", 0.15);
+      svg.append("path").datum([anchor].concat(fut)).attr("d", line)
+        .attr("fill", "none").attr("stroke", "#3fa535").attr("stroke-width", 2).attr("stroke-dasharray", "5 4");
+    }
+
+    svg.append("path").datum(act).attr("d", line)
+      .attr("fill", "none").attr("stroke", "#9fb6c9").attr("stroke-width", 2);
+    svg.append("path").datum(pred).attr("d", line)
+      .attr("fill", "none").attr("stroke", "#ffde00").attr("stroke-width", 1.5).attr("stroke-dasharray", "2 3");
+    pred.forEach(d => svg.append("circle").attr("cx", x(d.dt)).attr("cy", y(d.v))
+      .attr("r", 2.2).attr("fill", "#ffde00"));
+  }
+});
+</script>
+</body>
+</html>

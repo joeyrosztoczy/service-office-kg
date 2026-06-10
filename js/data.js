@@ -422,7 +422,7 @@
     dealerHubs.forEach(function (h) {
       const stock = hubStock(sim, h.id);
       if (!stock.length) return;
-      const lambda = 0.16 * h.demand * seasonal(h, sim.day) * (1 - Math.exp(-stock.length / 8));
+      const lambda = 0.16 * h.demand * (sim.demandScale || 1) * seasonal(h, sim.day) * (1 - Math.exp(-stock.length / 8));
       let n = Math.min(poisson(rand, lambda), stock.length);
       while (n-- > 0) {
         // bias sales toward older units (dealers push aged stock)
@@ -485,6 +485,7 @@
       history: [],
       market: { global: 1.0, regions: {} },
       risk: null,
+      demandScale: 1, // forecast-driven demand multiplier (Forecast outlook)
     };
     REGIONS.forEach(function (r) { sim.market.regions[r] = 1.0; });
 
@@ -514,9 +515,14 @@
     return new Date(sim.epoch + (day === undefined ? sim.day : day) * MS_DAY);
   }
 
+  function setDemandScale(sim, s) {
+    sim.demandScale = clamp(s, 0.5, 1.6);
+  }
+
   return {
     createSim: createSim,
     tick: tick,
+    setDemandScale: setDemandScale,
     simDate: simDate,
     matchesFilters: matchesFilters,
     unitsInStock: unitsInStock,

@@ -232,8 +232,39 @@
     resizeTimer = setTimeout(function () {
       TwinMap.init("#map", sim, filters);
       render();
+      renderForecastPanel();
     }, 200);
   });
+
+  // ---------------- real-data forecast panel ----------------
+  let forecastData = null;
+
+  function renderForecastPanel() {
+    if (!forecastData) return;
+    const de = forecastData.series.DE_REV;
+    const titn = forecastData.series.TITN_INV;
+    if (de) TwinCharts.forecastChart("#chart-forecast-de", de.recent, de.forecast, "#3fa535");
+    if (titn) TwinCharts.forecastChart("#chart-forecast-titn", titn.recent, titn.forecast, "#2d9cdb");
+
+    const o = forecastData.outlook;
+    if (o) {
+      Twin.setDemandScale(sim, o.demandScale);
+      const yoyPct = (o.avgYoY * 100).toFixed(1);
+      const cls = o.avgYoY >= 0 ? "pos" : "neg";
+      $("#outlook-body").innerHTML =
+        "Next-4-quarter demand outlook (" + o.basis + "):" +
+        "<span class='big " + cls + "'>" + (o.avgYoY >= 0 ? "+" : "") + yoyPct + "% YoY</span>" +
+        "The twin's retail demand is scaled by <b>×" + o.demandScale.toFixed(3) + "</b> — " +
+        "watch days-supply and the risk score respond to the real-world outlook. " +
+        "<br>Data: SEC EDGAR (Deere, CNH, AGCO, Titan Machinery) + FRED macro features, fetched " +
+        forecastData.generatedAt.slice(0, 10) + ".";
+    }
+  }
+
+  fetch("data/external/forecast-output.json")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { if (j) { forecastData = j; renderForecastPanel(); } })
+    .catch(function () { /* panel keeps its instructions */ });
 
   // ---------------- boot ----------------
   buildFilters();
