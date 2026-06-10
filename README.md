@@ -51,6 +51,15 @@ This ships with simulated data on purpose — swap the generator for real feeds 
 2. Feed real valuations from auction comps or guide books into `computeValue`.
 3. Point movement events at your transport-management or allocation data.
 
+## Historical playback
+
+```bash
+node scripts/replay.js   # replays ~2.5 years, prints a quarterly digest
+# then open docs/replay.html (served over http) for the playback charts
+```
+
+Writes `docs/replay-data.json` and reports stock/value/exposure/risk trajectories, sales seasonality, Deere vs competitor share, and realized margin by inventory age at sale.
+
 ## Tests
 
 ```bash

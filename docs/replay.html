@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>9R Digital Twin — 2.5-Year Inventory Playback</title>
+  <style>
+    :root {
+      --bg: #0c1116; --panel: #121a22; --line: #1f2c3a;
+      --text: #dce7f0; --muted: #7d92a5;
+      --green: #3fa535; --yellow: #ffde00; --red: #e25563; --amber: #f2a33c; --blue: #2d9cdb;
+    }
+    html, body { margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+    .wrap { max-width: 1480px; margin: 0 auto; padding: 18px 22px; }
+    h1 { font-size: 19px; margin: 0 0 2px; }
+    .sub { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; margin-bottom: 12px; }
+    .panel h2 { margin: 0 0 2px; font-size: 13px; text-transform: uppercase;
+      letter-spacing: 0.4px; color: #b9cbda; }
+    .legend { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+    .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin: 0 4px 0 12px; }
+    .chart { height: 230px; }
+    svg { width: 100%; height: 100%; display: block; }
+    .axis text { fill: var(--muted); font-size: 10px; }
+    .axis path, .axis line { stroke: var(--line); }
+    .grid line { stroke: rgba(255,255,255,0.04); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>9R Digital Twin — 2.5-year inventory playback</h1>
+  <p class="sub" id="meta">loading…</p>
+
+  <div class="panel">
+    <h2>Units in network (in stock)</h2>
+    <div class="legend">
+      <i style="background:#9fb6c9"></i>All brands
+      <i style="background:#3fa535"></i>John Deere
+      <i style="background:#d7263d"></i>Competitors
+      <i style="background:#ffde00"></i>In transit
+    </div>
+    <div id="c-stock" class="chart"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Deere inventory value (left) &amp; accrued floor-plan interest (right)</h2>
+    <div class="legend">
+      <i style="background:#3fa535"></i>Deere stock value ($M)
+      <i style="background:#e25563"></i>Interest accrued ($k)
+    </div>
+    <div id="c-value" class="chart"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Network risk score (left) &amp; Deere units aged 180+ days (right)</h2>
+    <div class="legend">
+      <i style="background:#f2a33c"></i>Risk score (0–100)
+      <i style="background:#e25563"></i>Units aged 180+d
+    </div>
+    <div id="c-risk" class="chart"></div>
+  </div>
+</div>
+
+<script src="../vendor/d3.v7.min.js"></script>
+<script>
+fetch("replay-data.json").then(r => r.json()).then(data => {
+  const days = data.days.map(d => Object.assign({}, d, { dt: new Date(d.date) }));
+  document.getElementById("meta").textContent =
+    days.length + " simulated days · " + days[0].date + " → " + days[days.length - 1].date +
+    " · generated " + data.generatedAt.slice(0, 10);
+
+  // generic multi-series line chart with optional right axis
+  function chart(sel, series, opts) {
+    const el = document.querySelector(sel);
+    const w = el.clientWidth, h = el.clientHeight;
+    const M = { top: 10, right: opts.right ? 46 : 16, bottom: 22, left: 46 };
+    const svg = d3.select(el).append("svg").attr("viewBox", "0 0 " + w + " " + h);
+
+    const x = d3.scaleTime().domain(d3.extent(days, d => d.dt)).range([M.left, w - M.right]);
+    const leftSeries = series.filter(s => !s.right);
+    const rightSeries = series.filter(s => s.right);
+    const yL = d3.scaleLinear()
+      .domain([opts.y0 != null ? opts.y0 : 0,
+        (opts.yMax || d3.max(leftSeries, s => d3.max(days, d => d[s.key] != null ? d[s.key] : 0)) * 1.08)])
+      .nice().range([h - M.bottom, M.top]);
+    let yR = null;
+    if (rightSeries.length) {
+      yR = d3.scaleLinear()
+        .domain([0, d3.max(rightSeries, s => d3.max(days, d => d[s.key] != null ? d[s.key] : 0)) * 1.1])
+        .nice().range([h - M.bottom, M.top]);
+    }
+
+    svg.append("g").attr("class", "axis grid")
+      .attr("transform", "translate(" + M.left + ",0)")
+      .call(d3.axisLeft(yL).ticks(5).tickSize(-(w - M.left - M.right))
+        .tickFormat(opts.fmtL || d3.format("~s")));
+    if (yR) svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(" + (w - M.right) + ",0)")
+      .call(d3.axisRight(yR).ticks(5).tickFormat(opts.fmtR || d3.format("~s")));
+    svg.append("g").attr("class", "axis")
+      .attr("transform", "translate(0," + (h - M.bottom) + ")")
+      .call(d3.axisBottom(x).ticks(d3.timeMonth.every(3)).tickFormat(d3.timeFormat("%b %y")));
+
+    series.forEach(s => {
+      const y = s.right ? yR : yL;
+      const line = d3.line()
+        .defined(d => d[s.key] != null)
+        .x(d => x(d.dt)).y(d => y(d[s.key]))
+        .curve(d3.curveMonotoneX);
+      if (s.area) {
+        const area = d3.area()
+          .defined(d => d[s.key] != null)
+          .x(d => x(d.dt)).y0(y(0)).y1(d => y(d[s.key]))
+          .curve(d3.curveMonotoneX);
+        svg.append("path").datum(days).attr("d", area).attr("fill", s.color).attr("opacity", 0.13);
+      }
+      svg.append("path").datum(days).attr("d", line)
+        .attr("fill", "none").attr("stroke", s.color)
+        .attr("stroke-width", s.width || 1.7)
+        .attr("stroke-dasharray", s.dash || null);
+    });
+  }
+
+  chart("#c-stock", [
+    { key: "stock", color: "#9fb6c9", width: 2, area: true },
+    { key: "stockDeere", color: "#3fa535", width: 2 },
+    { key: "stockComp", color: "#d7263d" },
+    { key: "transit", color: "#ffde00", dash: "3 3", width: 1.2 },
+  ], { fmtL: d3.format("d") });
+
+  chart("#c-value", [
+    { key: "valueDeere", color: "#3fa535", width: 2, area: true },
+    { key: "exposure", color: "#e25563", right: true, dash: "4 3" },
+  ], { fmtL: v => "$" + Math.round(v / 1e6) + "M", fmtR: v => "$" + Math.round(v / 1e3) + "k" });
+
+  chart("#c-risk", [
+    { key: "riskScore", color: "#f2a33c", width: 2, area: true },
+    { key: "aged180", color: "#e25563", right: true },
+  ], { yMax: 100, fmtL: d3.format("d"), fmtR: d3.format("d") });
+});
+</script>
+</body>
+</html>

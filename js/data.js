@@ -430,8 +430,10 @@
           .sort(function (a, b) { return b.invDays - a.invDays; });
         if (!sorted.length) break;
         const u = sorted[Math.floor(Math.pow(rand(), 2) * sorted.length)];
-        const price = Math.round(u.value * (0.97 + rand() * 0.06));
-        sim.sales.push({ day: sim.day, hub: h.id, brand: u.brand, model: u.model, price: price, margin: price - u.invoice - Math.round(u.interest) });
+        // retail realizes a markup over book value; aged/soft-market units
+        // can still clear below invoice once depreciation eats the markup
+        const price = Math.round(u.value * (1.04 + rand() * 0.10));
+        sim.sales.push({ day: sim.day, hub: h.id, brand: u.brand, model: u.model, price: price, invDays: u.invDays, margin: price - u.invoice - Math.round(u.interest) });
         sim.fleet.splice(sim.fleet.indexOf(u), 1);
         pushEvent(sim, "sale", u.brand + " " + u.model + " sold at " + h.name + " for $" + (price / 1000).toFixed(0) + "k");
       }
