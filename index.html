@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>9R Global Digital Twin — Inventory, Movement &amp; Risk</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="offline-banner">Could not load bundled map &amp; chart libraries (vendor/) — serve the full repo, e.g. <code>python3 -m http.server</code>.</div>
+
+  <header>
+    <div class="brand">
+      <div class="logo">9R</div>
+      <div>
+        <h1>9R Global Digital Twin</h1>
+        <p class="sub">John Deere 9R · 9RX · 9RT worldwide inventory vs. competitor horsepower equivalents</p>
+      </div>
+    </div>
+    <div class="sim-controls">
+      <span id="sim-date" class="sim-date">—</span>
+      <button id="btn-play" class="btn" title="Pause">⏸</button>
+      <select id="speed" class="btn" title="Simulation speed">
+        <option value="0.5">0.5 day/s</option>
+        <option value="1" selected>1 day/s</option>
+        <option value="2">2 days/s</option>
+        <option value="5">5 days/s</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="filters">
+    <div id="brand-chips" class="chips"></div>
+    <label class="fsel">Region
+      <select id="region-select"></select>
+    </label>
+    <label class="fsel">HP band
+      <select id="band-select"></select>
+    </label>
+  </div>
+
+  <section class="kpis">
+    <div class="kpi"><div class="kpi-label">Deere units in stock</div><div class="kpi-value" id="kpi-stock">–</div></div>
+    <div class="kpi"><div class="kpi-label">Units in transit</div><div class="kpi-value" id="kpi-transit">–</div></div>
+    <div class="kpi"><div class="kpi-label">Deere inventory value</div><div class="kpi-value" id="kpi-value">–</div></div>
+    <div class="kpi"><div class="kpi-label">Floor-plan interest accrued</div><div class="kpi-value" id="kpi-interest">–</div></div>
+    <div class="kpi"><div class="kpi-label">Units aged 180+ days</div><div class="kpi-value" id="kpi-aging">–</div></div>
+    <div class="kpi"><div class="kpi-label">Avg days in inventory</div><div class="kpi-value" id="kpi-days">–</div></div>
+  </section>
+
+  <main class="grid">
+    <div class="card map-card">
+      <div class="card-head">
+        <h2>Global inventory &amp; live movements</h2>
+        <span class="hint">dot size = units in stock · green = Deere-majority hub · arcs = units in transit</span>
+      </div>
+      <div id="map" class="map"></div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div class="card-head"><h2>Inventory by HP band</h2></div>
+        <div id="band-legend" class="legend"></div>
+        <div id="chart-bands" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Valuation &amp; floor-plan exposure</h2></div>
+        <div class="legend">
+          <span class="lg"><i style="background:#3fa535"></i>Deere stock value</span>
+          <span class="lg"><i style="background:#e25563"></i>Interest accrued</span>
+        </div>
+        <div id="chart-valuation" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Deere stock aging</h2></div>
+        <div id="chart-aging" class="chart chart-sm"></div>
+      </div>
+    </div>
+  </main>
+
+  <section class="grid-bottom">
+    <div class="card risk-card">
+      <div class="card-head"><h2>Network risk</h2></div>
+      <div class="risk-top">
+        <div id="risk-score" class="risk-score">–</div>
+        <div class="risk-right">
+          <div class="risk-bar"><div id="risk-fill"></div></div>
+          <div id="risk-meta" class="risk-meta">—</div>
+        </div>
+      </div>
+      <ul id="alerts-list" class="alerts"></ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Live movement &amp; sales feed</h2></div>
+      <ul id="feed-list" class="feed"></ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Regional position</h2></div>
+      <table class="rtable">
+        <thead>
+          <tr><th>Region</th><th>JD</th><th>Comp</th><th>Value</th><th>Days supply</th><th>Mkt idx</th></tr>
+        </thead>
+        <tbody id="region-table"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Synthetic digital-twin data for dealership inventory &amp; risk planning — not actual John Deere inventory.
+    Wire real feeds (DTAC / Operations Center exports, auction comps) into <code>js/data.js</code> to go live.
+  </footer>
+
+  <script src="vendor/d3.v7.min.js"></script>
+  <script src="vendor/topojson-client.min.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
