@@ -318,6 +318,51 @@
     .then(function (j) { if (j && j.points && j.points.length) renderChannelGauge(j); })
     .catch(function () { /* gauge stays in loading state */ });
 
+  // ---------------- macro shock monitor (financial-stress overlay) -----
+  function renderShockGauge(data) {
+    var c = data.current;
+    var light = $("#shock-light");
+    light.className = "gauge-light " + c.level;
+    $("#shock-level").textContent = c.level === "calm" ? "OK" : c.level.toUpperCase();
+    $("#shock-headline").innerHTML = "Financial stress index <b>" + (c.value >= 0 ? "+" : "") + c.value +
+      "</b> <span style='color:var(--muted);font-weight:400'>(" + c.date + (c.rising ? ", rising" : "") + ")</span>";
+
+    var note;
+    if (c.level === "calm") note = "Markets calm — no exogenous demand shock detected.";
+    else if (c.level === "watch") note = "Elevated stress — monitoring; not yet shock territory.";
+    else if (c.level === "stress") note = "High stress — minor episodes are noisy, but watch ag demand.";
+    else note = "MACRO SHOCK in progress — current-quarter demand at risk (this is the COVID/2008 regime).";
+    if (c.level === "shock" || c.level === "stress") {
+      note += " Forecast intervals widened ×" + c.intervalMult + "; twin demand ×" + c.demandDampen + ".";
+      Twin.setDemandScale(sim, (sim.demandScale || 1) * c.demandDampen);
+    }
+    $("#shock-note").textContent = note;
+    drawShockSpark("#shock-spark", data.weekly.slice(-130), data.thresholds);
+  }
+
+  function drawShockSpark(sel, pts, thr) {
+    if (typeof d3 === "undefined") return;
+    var el = $(sel); el.innerHTML = "";
+    var w = el.clientWidth || 420, h = el.clientHeight || 46;
+    var svg = d3.select(el).append("svg").attr("viewBox", "0 0 " + w + " " + h);
+    var x = d3.scaleLinear().domain([0, pts.length - 1]).range([0, w]);
+    var y = d3.scaleLinear().domain([Math.min(-0.5, d3.min(pts, function (p) { return p.v; })),
+      Math.max(thr.shock, d3.max(pts, function (p) { return p.v; }))]).range([h - 2, 2]);
+    [[thr.stress, "#e8843a"], [thr.shock, "#e25563"]].forEach(function (t) {
+      svg.append("line").attr("x1", 0).attr("x2", w).attr("y1", y(t[0])).attr("y2", y(t[0]))
+        .attr("stroke", t[1]).attr("stroke-dasharray", "2 3").attr("opacity", 0.5);
+    });
+    var area = d3.area().x(function (p, i) { return x(i); }).y0(y(0)).y1(function (p) { return y(p.v); }).curve(d3.curveMonotoneX);
+    svg.append("path").datum(pts).attr("d", area).attr("fill", "rgba(45,156,219,0.18)");
+    var line = d3.line().x(function (p, i) { return x(i); }).y(function (p) { return y(p.v); }).curve(d3.curveMonotoneX);
+    svg.append("path").datum(pts).attr("d", line).attr("fill", "none").attr("stroke", "#2d9cdb").attr("stroke-width", 1.6);
+  }
+
+  fetch("data/external/shock-signal.json")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { if (j && j.current) renderShockGauge(j); })
+    .catch(function () { /* gauge stays in loading state */ });
+
   // ---------------- boot ----------------
   buildFilters();
   buildControls();

@@ -95,6 +95,17 @@ At the **eve of the 2024 downturn** (zero-lookahead stress test standing at Oct 
 
 The dashboard's forecast panel charts the Deere revenue and dealer-inventory outlooks with 80% intervals and applies the average next-4-quarter YoY growth to the twin's retail demand (`Twin.setDemandScale`), so days-supply and the risk score respond to the real-world outlook.
 
+## Macro shock monitor (exogenous-event overlay)
+
+The five-event backtest exposed one class the model cannot forecast: exogenous shocks like COVID-19. No model predicts the *trigger* of a pandemic — but financial markets reprice the *consequences* within days. The monitor (`scripts/shock-monitor.js`, `docs/shock-monitor.html`) uses the weekly **St. Louis Fed Financial Stress Index (STLFSI4)** as a real-time detector.
+
+Crucially, it is an **overlay, not a forecast feature** — and that distinction is backed by testing:
+
+- As a quarterly forecast feature, financial stress has |corr| ≈ 0.1 with next-quarter ag revenue (spikes are sudden and mean-revert), so it was deliberately *excluded* from the regression — it would only add noise.
+- As a real-time monitor it is invaluable: STLFSI jumped from −0.12 (Jan 31 2020, when a scheduled quarterly forecast was genuinely blind) to **+3.51 on Mar 13 2020 and +5.66 on Mar 20** — flagging the shock **~10 weeks before** Deere's −20% Q2-2020 revenue print.
+
+Only the two readings above +2.0 since 2008 (the 2008 crisis and COVID) are reliable demand-shock alarms; smaller 1.0–1.5 spikes are noisy and tiered as "watch/stress." When the index is in stress/shock territory the dashboard raises an alarm, **widens the live forecast's confidence intervals** (×1–2.5), and **dampens the twin's demand scale** (down to ×0.65) — directly fixing the backtest's known failure of too-narrow intervals during shocks. Today it reads calm (−0.87).
+
 ## Historical playback
 
 ```bash

@@ -108,7 +108,30 @@ function fetchFredFeature(feature) {
   return null;
 }
 
-// ---------------- SEC EDGAR ----------------
+// ---------------- St. Louis Fed Financial Stress Index (weekly, no key) ----
+// Purpose-built composite of 18 financial-market stress measures (credit
+// spreads, implied vol, Treasuries). The best single "exogenous shock"
+// detector — it spiked weeks before COVID/2008/2022 hit ag revenue.
+function fetchStress() {
+  const csv = curl("https://fred.stlouisfed.org/graph/fredgraph.csv?id=STLFSI4");
+  const lines = csv.trim().split("\n").slice(1);
+  const weekly = [];
+  for (const line of lines) {
+    const [date, raw] = line.split(",");
+    const v = parseFloat(raw);
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(v)) weekly.push({ date: date, value: v });
+  }
+  if (weekly.length < 200) throw new Error("STLFSI4: only " + weekly.length + " weeks");
+  // monthly = the most stressed (max) reading in the month, so mid-month
+  // spikes survive aggregation into the quarterly model's feature
+  const byMonth = {};
+  for (const w of weekly) {
+    const m = w.date.slice(0, 7);
+    byMonth[m] = byMonth[m] == null ? w.value : Math.max(byMonth[m], w.value);
+  }
+  const monthly = Object.keys(byMonth).sort().map(function (m) { return { date: m + "-01", value: byMonth[m] }; });
+  return { weekly: weekly, monthly: monthly };
+}
 const EDGAR_SERIES = [
   { series: "DE_REV",   company: "Deere & Co",                cik: "0000315189", kind: "duration",
     tags: ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"] },
@@ -209,6 +232,17 @@ try {
   console.log("  DROUGHT     " + obs.length + " obs  " + obs[0].date + " .. " + obs[obs.length - 1].date + "  [USDM D2+]");
 } catch (e) {
   console.log("  DROUGHT     SKIPPED (" + e.message.split("\n")[0].slice(0, 60) + ")");
+}
+
+console.log("Fetching St. Louis Fed Financial Stress Index…");
+try {
+  const stress = fetchStress();
+  out.fred.STRESS = { name: "St. Louis Fed Financial Stress Index (monthly max)", fredId: "STLFSI4", freq: "monthly", obs: stress.monthly };
+  out.stressWeekly = { name: "STLFSI4 weekly", fredId: "STLFSI4", obs: stress.weekly };
+  const m = stress.monthly;
+  console.log("  STRESS      " + m.length + " months  " + m[0].date + " .. " + m[m.length - 1].date + "  [STLFSI4]");
+} catch (e) {
+  console.log("  STRESS      SKIPPED (" + e.message.split("\n")[0].slice(0, 60) + ")");
 }
 
 console.log("Fetching SEC EDGAR series…");
