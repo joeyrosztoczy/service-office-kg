@@ -266,6 +266,58 @@
     .then(function (j) { if (j) { forecastData = j; renderForecastPanel(); } })
     .catch(function () { /* panel keeps its instructions */ });
 
+  // ---------------- dealer channel early-warning gauge ----------------
+  function renderChannelGauge(data) {
+    const pts = data.points;
+    const latest = pts[pts.length - 1];
+    const cross = data.crossings && data.crossings[0];
+    const light = $("#gauge-light");
+    light.className = "gauge-light " + latest.level;
+    $("#gauge-level").textContent = latest.level === "normal" ? "OK" : latest.level.toUpperCase();
+
+    const stsPct = (latest.stsYoY >= 0 ? "+" : "") + (latest.stsYoY * 100).toFixed(1) + "%";
+    const cls = latest.stsYoY >= 0 ? "pos" : "neg";
+    $("#gauge-headline").innerHTML = "Dealer stock-to-sales <span class='" + cls + "'>" + stsPct +
+      " YoY</span> <span style='color:var(--muted);font-weight:400'>(" + latest.date.slice(0, 7) + ")</span>";
+
+    let note = latest.level === "normal"
+      ? "Below the +15% warning threshold — channel inventory healthy relative to sales."
+      : latest.level === "amber"
+        ? "Above +15% — channel building faster than it sells; watch closely."
+        : "Above +25% — channel overstocked; historically precedes a manufacturer downturn.";
+    if (cross) {
+      note += " The 2023 crossing (" + cross.start.slice(0, 7) + ") led Deere's downturn by " +
+        cross.leadQuarters + " quarters.";
+    }
+    $("#gauge-note").textContent = note;
+    drawSpark("#gauge-spark", pts.slice(-24), data.thresholds);
+  }
+
+  function drawSpark(sel, pts, thr) {
+    if (typeof d3 === "undefined") return;
+    const el = $(sel); el.innerHTML = "";
+    const w = el.clientWidth || 420, h = el.clientHeight || 46;
+    const svg = d3.select(el).append("svg").attr("viewBox", "0 0 " + w + " " + h);
+    const x = d3.scaleBand().domain(pts.map(function (p) { return p.date; })).range([0, w]).padding(0.2);
+    const ext = d3.extent(pts.map(function (p) { return p.stsYoY; }));
+    const y = d3.scaleLinear().domain([Math.min(ext[0], -0.05), Math.max(ext[1], thr.red)]).range([h - 2, 2]);
+    svg.append("line").attr("x1", 0).attr("x2", w).attr("y1", y(0)).attr("y2", y(0)).attr("stroke", "#3a4a5c");
+    [thr.amber, thr.red].forEach(function (t, i) {
+      svg.append("line").attr("x1", 0).attr("x2", w).attr("y1", y(t)).attr("y2", y(t))
+        .attr("stroke", i ? "#e25563" : "#f2a33c").attr("stroke-dasharray", "2 3").attr("opacity", 0.5);
+    });
+    svg.selectAll("rect").data(pts).join("rect")
+      .attr("x", function (p) { return x(p.date); }).attr("width", x.bandwidth())
+      .attr("y", function (p) { return p.stsYoY >= 0 ? y(p.stsYoY) : y(0); })
+      .attr("height", function (p) { return Math.abs(y(p.stsYoY) - y(0)); })
+      .attr("fill", function (p) { return p.level === "red" ? "#e25563" : p.level === "amber" ? "#f2a33c" : "#3a5168"; });
+  }
+
+  fetch("data/external/channel-signal.json")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { if (j && j.points && j.points.length) renderChannelGauge(j); })
+    .catch(function () { /* gauge stays in loading state */ });
+
   // ---------------- boot ----------------
   buildFilters();
   buildControls();

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>9R Twin — Dealer Channel Leading Indicator</title>
+  <style>
+    :root {
+      --bg:#0c1116; --panel:#121a22; --line:#1f2c3a; --text:#dce7f0; --muted:#7d92a5;
+      --green:#3fa535; --yellow:#ffde00; --red:#e25563; --amber:#f2a33c; --blue:#2d9cdb;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI",system-ui,sans-serif;}
+    .wrap{max-width:1320px;margin:0 auto;padding:18px 22px;}
+    h1{font-size:20px;margin:0 0 2px;}
+    .sub{color:var(--muted);font-size:12.5px;margin:0 0 14px;max-width:980px;}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+    .panel h2{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:#b9cbda;}
+    .legend{color:var(--muted);font-size:11.5px;margin:2px 0 6px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;}
+    .legend i{width:11px;height:11px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:-1px;}
+    .chart{height:430px;}
+    svg{width:100%;height:100%;display:block;}
+    .axis text{fill:var(--muted);font-size:10.5px;}
+    .axis path,.axis line{stroke:var(--line);}
+    .axis-title{fill:var(--muted);font-size:11px;}
+    .crossing-flag{fill:var(--yellow);font-size:11px;font-weight:700;}
+    .lead-label{fill:var(--yellow);font-size:12px;font-weight:700;}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+    .card{background:#0e1822;border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+    .card .big{font-size:26px;font-weight:800;margin:2px 0;}
+    .card .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.3px;}
+    .card.amber{border-left:3px solid var(--amber);}
+    .card.red{border-left:3px solid var(--red);}
+    .card.green{border-left:3px solid var(--green);}
+    .tt{position:absolute;pointer-events:none;background:rgba(10,16,22,.95);border:1px solid var(--line);
+        border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5;opacity:0;z-index:5;max-width:240px;}
+    .now-tag{fill:var(--muted);font-size:10.5px;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Dealer channel stock-to-sales — the early-warning gauge</h1>
+  <p class="sub" id="sub">loading…</p>
+
+  <div class="panel" style="position:relative;">
+    <h2>Channel stock-to-sales YoY (bars) vs Deere revenue YoY (line)</h2>
+    <div class="legend">
+      <span><i style="background:#3a5168"></i>Stock-to-sales YoY — normal</span>
+      <span><i style="background:#f2a33c"></i>amber (≥ +15%)</span>
+      <span><i style="background:#e25563"></i>red (≥ +25%)</span>
+      <span><i style="background:#9fb6c9;border-radius:50%"></i>Deere revenue YoY (shifted to show lead)</span>
+      <span><i style="background:#ffde00"></i>sustained warning crossing</span>
+    </div>
+    <div id="chart" class="chart"></div>
+    <div id="tt" class="tt"></div>
+  </div>
+
+  <div class="panel">
+    <h2>What the gauge would have called</h2>
+    <div id="cards" class="cards"></div>
+  </div>
+</div>
+
+<script src="../vendor/d3.v7.min.js"></script>
+<script>
+fetch("../data/external/channel-signal.json").then(r=>r.json()).then(data=>{
+  const pts = data.points.filter(p=>p.date>="2012-06-01");
+  const A = data.thresholds.amber, R = data.thresholds.red;
+  document.getElementById("sub").innerHTML =
+    data.note + " The line is Deere revenue YoY drawn at the quarter it was actually reported; the bars lead it. "+
+    "Generated " + data.generatedAt.slice(0,10) + ".";
+
+  const el = document.getElementById("chart");
+  const tt = document.getElementById("tt");
+  const W = el.clientWidth, Hh = el.clientHeight;
+  const M = {top:16,right:54,bottom:40,left:54};
+  const svg = d3.select(el).append("svg").attr("viewBox","0 0 "+W+" "+Hh);
+
+  const x = d3.scaleBand().domain(pts.map(p=>p.date)).range([M.left,W-M.right]).padding(0.25);
+  const allY = pts.map(p=>p.stsYoY).concat(pts.map(p=>p.deYoY).filter(v=>v!=null));
+  const y = d3.scaleLinear().domain([d3.min(allY)*1.1, d3.max(allY)*1.1]).nice().range([Hh-M.bottom,M.top]);
+
+  // threshold guide lines (amber/red)
+  [[A,"#f2a33c"],[R,"#e25563"]].forEach(([thr,col])=>{
+    svg.append("line").attr("x1",M.left).attr("x2",W-M.right).attr("y1",y(thr)).attr("y2",y(thr))
+      .attr("stroke",col).attr("stroke-dasharray","3 4").attr("opacity",.55);
+    svg.append("text").attr("x",W-M.right+3).attr("y",y(thr)+3).attr("fill",col).attr("font-size",10)
+      .text(thr===A?"+15%":"+25%");
+  });
+  // zero line
+  svg.append("line").attr("x1",M.left).attr("x2",W-M.right).attr("y1",y(0)).attr("y2",y(0))
+    .attr("stroke","#3a4a5c").attr("stroke-width",1);
+
+  // bars
+  svg.selectAll("rect.b").data(pts).join("rect").attr("class","b")
+    .attr("x",p=>x(p.date)).attr("width",x.bandwidth())
+    .attr("y",p=>p.stsYoY>=0?y(p.stsYoY):y(0))
+    .attr("height",p=>Math.abs(y(p.stsYoY)-y(0)))
+    .attr("fill",p=>p.level==="red"?"#e25563":p.level==="amber"?"#f2a33c":(p.stsYoY>=0?"#3a5168":"#2a3a48"))
+    .attr("rx",1)
+    .on("mousemove",function(ev,p){
+      const r=el.getBoundingClientRect();
+      tt.style.opacity=1;
+      tt.style.left=(ev.clientX-r.left+12)+"px"; tt.style.top=(ev.clientY-r.top+10)+"px";
+      tt.innerHTML="<b>"+p.date+"</b><br>Stock-to-sales: "+p.sts.toFixed(3)+
+        "<br>StS YoY: <b>"+(p.stsYoY>=0?"+":"")+(p.stsYoY*100).toFixed(1)+"%</b>"+
+        (p.level!=="normal"?" <span style='color:"+(p.level==="red"?"#e25563":"#f2a33c")+"'>"+p.level.toUpperCase()+"</span>":"")+
+        "<br>Inventory YoY: "+(p.invYoY>=0?"+":"")+(p.invYoY*100).toFixed(1)+"%"+
+        (p.deYoY!=null?"<br>Deere rev YoY (this qtr): "+(p.deYoY>=0?"+":"")+(p.deYoY*100).toFixed(1)+"%":"");
+    }).on("mouseleave",()=>tt.style.opacity=0);
+
+  // Deere YoY line + dots
+  const line = d3.line().defined(p=>p.deYoY!=null)
+    .x(p=>x(p.date)+x.bandwidth()/2).y(p=>y(p.deYoY)).curve(d3.curveMonotoneX);
+  svg.append("path").datum(pts).attr("d",line).attr("fill","none")
+    .attr("stroke","#9fb6c9").attr("stroke-width",2);
+  svg.selectAll("circle.de").data(pts.filter(p=>p.deYoY!=null)).join("circle").attr("class","de")
+    .attr("cx",p=>x(p.date)+x.bandwidth()/2).attr("cy",p=>y(p.deYoY)).attr("r",2.6)
+    .attr("fill",p=>p.deYoY<0?"#e25563":"#9fb6c9");
+
+  // crossings: vertical flag + lead arrow to first Deere downturn
+  data.crossings.forEach(c=>{
+    if(!x(c.start))return;
+    const cx=x(c.start)+x.bandwidth()/2;
+    svg.append("line").attr("x1",cx).attr("x2",cx).attr("y1",M.top).attr("y2",Hh-M.bottom)
+      .attr("stroke","#ffde00").attr("stroke-width",1.4).attr("opacity",.8);
+    svg.append("text").attr("class","crossing-flag").attr("x",cx-4).attr("y",M.top+10)
+      .attr("text-anchor","end").text("⚑ warning "+c.start.slice(0,7));
+    if(c.firstDeereDownturn && x(pointDateNear(c.firstDeereDownturn))){
+      const dx=x(pointDateNear(c.firstDeereDownturn))+x.bandwidth()/2;
+      const yArrow=Hh-M.bottom-14;
+      svg.append("line").attr("x1",cx).attr("x2",dx).attr("y1",yArrow).attr("y2",yArrow)
+        .attr("stroke","#ffde00").attr("stroke-width",1.6).attr("marker-end","url(#arrow)");
+      svg.append("line").attr("x1",dx).attr("x2",dx).attr("y1",M.top).attr("y2",Hh-M.bottom)
+        .attr("stroke","#e25563").attr("stroke-dasharray","2 3").attr("opacity",.7);
+      svg.append("text").attr("class","lead-label").attr("x",(cx+dx)/2).attr("y",yArrow-6)
+        .attr("text-anchor","middle").text(c.leadQuarters+"Q early");
+      svg.append("text").attr("x",dx+4).attr("y",M.top+26).attr("fill","#e25563").attr("font-size",10.5)
+        .attr("font-weight",700).text("Deere ↓ "+c.firstDeereDownturn.slice(0,7));
+    }
+  });
+  svg.append("defs").append("marker").attr("id","arrow").attr("viewBox","0 0 10 10")
+    .attr("refX",8).attr("refY",5).attr("markerWidth",7).attr("markerHeight",7).attr("orient","auto")
+    .append("path").attr("d","M0,0L10,5L0,10z").attr("fill","#ffde00");
+
+  function pointDateNear(d){ // snap a Deere date to the nearest bar date on the x axis
+    let best=pts[0].date,bd=1e9;
+    for(const p of pts){const dd=Math.abs(new Date(p.date)-new Date(d));if(dd<bd){bd=dd;best=p.date;}}
+    return best;
+  }
+
+  // axes
+  svg.append("g").attr("class","axis").attr("transform","translate(0,"+(Hh-M.bottom)+")")
+    .call(d3.axisBottom(x).tickValues(pts.filter((p,i)=>i%2===0).map(p=>p.date))
+      .tickFormat(d=>d.slice(0,7))).selectAll("text").attr("transform","rotate(-40)").attr("text-anchor","end").attr("dx","-4");
+  svg.append("g").attr("class","axis").attr("transform","translate("+M.left+",0)")
+    .call(d3.axisLeft(y).ticks(6).tickFormat(d3.format("+.0%")));
+  svg.append("text").attr("class","axis-title").attr("transform","rotate(-90)")
+    .attr("x",-(Hh/2)).attr("y",14).attr("text-anchor","middle").text("YoY change");
+
+  // summary cards
+  const cards=document.getElementById("cards");
+  const latest=pts[pts.length-1];
+  const c=data.crossings[0];
+  const mk=(cls,lbl,big,sub)=>`<div class="card ${cls}"><div class="lbl">${lbl}</div><div class="big">${big}</div><div style="color:var(--muted);font-size:11.5px">${sub}</div></div>`;
+  let html="";
+  html+=mk(latest.level==="red"?"red":latest.level==="amber"?"amber":"green",
+    "Current channel signal ("+latest.date.slice(0,7)+")",
+    (latest.stsYoY>=0?"+":"")+(latest.stsYoY*100).toFixed(1)+"%",
+    latest.level==="normal"?"Stock-to-sales below warning thresholds":"Above "+latest.level+" threshold");
+  if(c){
+    html+=mk("amber","2023 warning fired","⚑ "+c.start.slice(0,7),
+      "Stock-to-sales crossed +15% YoY while Deere was still up "+ "+27.9%");
+    html+=mk("red","Lead time delivered",c.leadQuarters+" quarters",
+      "before Deere revenue went negative ("+c.firstDeereDownturn.slice(0,7)+")");
+  }
+  const peak=pts.reduce((a,b)=>b.stsYoY>a.stsYoY?b:a);
+  html+=mk("red","Peak channel overstock",(peak.stsYoY*100).toFixed(0)+"% YoY",
+    peak.date.slice(0,7)+" — worst dealer stock-to-sales build");
+  cards.innerHTML=html;
+});
+</script>
+</body>
+</html>
