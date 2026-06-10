@@ -234,9 +234,11 @@
   // final forecast: recursive multi-step with 80% interval from backtest
   // residuals (macro features frozen at their latest published values)
   // ------------------------------------------------------------------
-  function forecast(target, macros, h, residStdLog) {
+  function forecast(target, macros, h, residStdLog, opts) {
+    opts = opts || {};
+    const minRows = opts.minRows || 16;
     const built = buildRows(target, macros);
-    if (built.rows.length < 16) return [];
+    if (built.rows.length < minRows) return [];
     const model = fitRidge(built.rows, chooseLambda(built.rows, 12));
     const act = activeMacros(macros);
     const ext = target.map(function (t) { return { date: t.date, value: t.value }; });
@@ -266,8 +268,20 @@
     return out;
   }
 
+  // Truncate every macro series at a historical date — required for honest
+  // stress tests that launch forecasts from past origins.
+  function truncateMacros(macros, date) {
+    const out = {};
+    for (const k in macros) {
+      if (!macros[k] || !macros[k].obs) continue;
+      out[k] = { obs: macros[k].obs.filter(function (o) { return o.date <= date; }) };
+    }
+    return out;
+  }
+
   return {
     buildRows: buildRows,
+    truncateMacros: truncateMacros,
     walkForward: walkForward,
     metrics: metrics,
     residualStd: residualStd,
